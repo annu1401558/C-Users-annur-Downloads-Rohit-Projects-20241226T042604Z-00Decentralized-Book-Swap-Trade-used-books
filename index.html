@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DecentralizedBookSwap</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/web3/1.7.4-rc.1/web3.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .book-form {
+            display: grid;
+            gap: 15px;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        input, select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .books-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .book-card {
+            background-color: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .status-message {
+            text-align: center;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Decentralized Book Swap</h1>
+            <div id="wallet-status"></div>
+        </div>
+
+        <div class="section">
+            <h2>List a Book</h2>
+            <form id="list-book-form" class="book-form">
+                <input type="text" id="book-title" placeholder="Book Title" required>
+                <input type="text" id="book-author" placeholder="Author" required>
+                <select id="book-condition" required>
+                    <option value="">Select Condition</option>
+                    <option value="Like New">Like New</option>
+                    <option value="Very Good">Very Good</option>
+                    <option value="Good">Good</option>
+                    <option value="Fair">Fair</option>
+                </select>
+                <input type="number" id="deposit-amount" placeholder="Deposit Amount (ETH)" required>
+                <button type="submit">List Book</button>
+            </form>
+        </div>
+
+        <div class="section">
+            <h2>Available Books</h2>
+            <div id="books-container" class="books-grid"></div>
+        </div>
+    </div>
+
+    <script>
+        let web3;
+        let contract;
+        const contractAddress = "0x208d9bdc597509aab8498138cfb5dff67d07ca6d";
+        const contractABI = [
+	{
+		"inputs": [],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "uint256",
+				"name": "bookId",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"internalType": "string",
+				"name": "title",
+				"type": "string"
+			},
+			{
+				"indexed": false,
+				"internalType": "address",
+				"name": "owner",
+				"type": "address"
+			}
+		],
+		"name": "BookListed",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "uint256",
+				"name": "bookId",
+				"type": "uint256"
+			}
+		],
+		"name": "BookRemoved",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "uint256",
+				"name": "bookId",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"internalType": "address",
+				"name": "from",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "address",
+				"name": "to",
+				"type": "address"
+			}
+		],
+		"name": "BookSwapped",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_bookId",
+				"type": "uint256"
+			}
+		],
+		"name": "initiateSwap",
+		"outputs": [],
+		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "_title",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "_author",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "_condition",
+				"type": "string"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_depositAmount",
+				"type": "uint256"
+			}
+		],
+		"name": "listBook",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_bookId",
+				"type": "uint256"
+			}
+		],
+		"name": "removeBook",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "bookCount",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "bookHistory",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "books",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "id",
+				"type": "uint256"
+			},
+			{
+				"internalType": "string",
+				"name": "title",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "author",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "condition",
+				"type": "string"
+			},
+			{
+				"internalType": "address",
+				"name": "owner",
+				"type": "address"
+			},
+			{
+				"internalType": "bool",
+				"name": "isAvailable",
+				"type": "bool"
+			},
+			{
+				"internalType": "uint256",
+				"name": "depositAmount",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_bookId",
+				"type": "uint256"
+			}
+		],
+		"name": "getBookHistory",
+		"outputs": [
+			{
+				"internalType": "address[]",
+				"name": "",
+				"type": "address[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_user",
+				"type": "address"
+			}
+		],
+		"name": "getBooksByUser",
+		"outputs": [
+			{
+				"internalType": "uint256[]",
+				"name": "",
+				"type": "uint256[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "userBooks",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]; // Add your contract ABI here
+
+        async function init() {
+            if (typeof window.ethereum !== 'undefined') {
+                try {
+                    // Request account access
+                    await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    web3 = new Web3(window.ethereum);
+                    contract = new web3.eth.Contract(contractABI, contractAddress);
+                    
+                    updateWalletStatus();
+                    loadBooks();
+                } catch (error) {
+                    console.error("User denied account access");
+                }
+            } else {
+                console.log('Please install MetaMask!');
+            }
+        }
+
+        async function updateWalletStatus() {
+            const accounts = await web3.eth.getAccounts();
+            document.getElementById('wallet-status').innerHTML = 
+                `Connected Address: ${accounts[0].substring(0, 6)}...${accounts[0].substring(38)}`;
+        }
+
+        async function listBook(event) {
+            event.preventDefault();
+            const title = document.getElementById('book-title').value;
+            const author = document.getElementById('book-author').value;
+            const condition = document.getElementById('book-condition').value;
+            const depositAmount = web3.utils.toWei(
+                document.getElementById('deposit-amount').value,
+                'ether'
+            );
+
+            try {
+                const accounts = await web3.eth.getAccounts();
+                await contract.methods.listBook(title, author, condition, depositAmount)
+                    .send({ from: accounts[0] });
+                
+                showMessage('Book listed successfully!', 'success');
+                loadBooks();
+                event.target.reset();
+            } catch (error) {
+                showMessage('Error listing book: ' + error.message, 'error');
+            }
+        }
+
+        async function loadBooks() {
+            const booksContainer = document.getElementById('books-container');
+            booksContainer.innerHTML = '';
+
+            try {
+                const bookCount = await contract.methods.bookCount().call();
+                
+                for (let i = 1; i <= bookCount; i++) {
+                    const book = await contract.methods.books(i).call();
+                    if (book.isAvailable) {
+                        const bookCard = createBookCard(book);
+                        booksContainer.appendChild(bookCard);
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading books:', error);
+            }
+        }
+
+        function createBookCard(book) {
+            const div = document.createElement('div');
+            div.className = 'book-card';
+            div.innerHTML = `
+                <h3>${book.title}</h3>
+                <p>Author: ${book.author}</p>
+                <p>Condition: ${book.condition}</p>
+                <p>Deposit: ${web3.utils.fromWei(book.depositAmount, 'ether')} ETH</p>
+                <button onclick="initiateSwap(${book.id}, '${book.depositAmount}')">
+                    Swap Book
+                </button>
+            `;
+            return div;
+        }
+
+        async function initiateSwap(bookId, depositAmount) {
+            try {
+                const accounts = await web3.eth.getAccounts();
+                await contract.methods.initiateSwap(bookId)
+                    .send({ 
+                        from: accounts[0],
+                        value: depositAmount
+                    });
+                
+                showMessage('Book swap initiated successfully!', 'success');
+                loadBooks();
+            } catch (error) {
+                showMessage('Error initiating swap: ' + error.message, 'error');
+            }
+        }
+
+        function showMessage(message, type) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `status-message ${type}`;
+            messageDiv.textContent = message;
+            document.body.insertBefore(messageDiv, document.body.firstChild);
+            setTimeout(() => messageDiv.remove(), 5000);
+        }
+
+        document.getElementById('list-book-form').addEventListener('submit', listBook);
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
